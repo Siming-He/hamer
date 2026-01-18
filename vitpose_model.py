@@ -1,24 +1,72 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from mmpose.apis import inference_top_down_pose_model, init_pose_model, process_mmdet_results, vis_pose_result
-
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 
-# project root directory
-ROOT_DIR = "./"
-VIT_DIR = os.path.join(ROOT_DIR, "third-party/ViTPose")
+# repo root directory (works regardless of current working directory)
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+# Prefer an external/symlinked ViTPose checkout at `third-party/ViTPose`, but
+# fall back to HaMeR's vendored copy if the symlink isn't set up (or is broken).
+_VITPOSE_CANDIDATES = [
+    ROOT_DIR / "third-party" / "ViTPose",
+    ROOT_DIR / "third-party" / "hamer" / "third-party" / "ViTPose",
+]
+VIT_DIR = next((p for p in _VITPOSE_CANDIDATES if p.is_dir()), _VITPOSE_CANDIDATES[0])
+
+try:
+    from mmpose.apis import (
+        inference_top_down_pose_model,
+        init_pose_model,
+        process_mmdet_results,
+        vis_pose_result,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name == "mmcv":
+        raise ModuleNotFoundError(
+            "Missing dependency `mmcv` required by ViTPose/MMPose. "
+            "Try installing the OpenMMLab stack (see "
+            "`third-party/hamer/third-party/ViTPose/docs/en/install.md`)."
+        ) from exc
+    if exc.name != "mmpose":
+        raise
+
+    # Fallback: allow using a local ViTPose checkout without installing it as a package.
+    sys.path.insert(0, str(VIT_DIR))
+    try:
+        from mmpose.apis import (
+            inference_top_down_pose_model,
+            init_pose_model,
+            process_mmdet_results,
+            vis_pose_result,
+        )
+    except ModuleNotFoundError as exc2:
+        if exc2.name == "mmcv":
+            raise ModuleNotFoundError(
+                "Missing dependency `mmcv` required by ViTPose/MMPose. "
+                "Try installing the OpenMMLab stack (see "
+                "`third-party/hamer/third-party/ViTPose/docs/en/install.md`)."
+            ) from exc2
+        if exc2.name != "mmpose":
+            raise
+        raise ModuleNotFoundError(
+            "Missing dependency `mmpose`. Install ViTPose/MMPose, e.g. "
+            "`pip install -v -e third-party/hamer/third-party/ViTPose` (from repo root), "
+            "or use `--hamer_backend torchvision` to avoid this dependency."
+        ) from exc2
 
 class ViTPoseModel(object):
     MODEL_DICT = {
         'ViTPose+-G (multi-task train, COCO)': {
-            'config': f'{VIT_DIR}/configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/ViTPose_huge_wholebody_256x192.py',
-            'model': f'{ROOT_DIR}/_DATA/vitpose_ckpts/vitpose+_huge/wholebody.pth',
+            'config': str(VIT_DIR / 'configs/wholebody/2d_kpt_sview_rgb_img/topdown_heatmap/coco-wholebody/ViTPose_huge_wholebody_256x192.py'),
+            'model': str(ROOT_DIR / '_DATA/vitpose_ckpts/vitpose+_huge/wholebody.pth'),
         },
     }
 
